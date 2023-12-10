@@ -111,8 +111,3 @@ min(events_distance$proportion)
 
 # Store dataframe object
 saveRDS(events_distance,"data/events_distances.RDS")
-
-# Not needed here: Expand it to include a time axis
-#events_sharedborder_withtime <- tidyr::crossing(events_sharedborder, time = 1:100) %>% dplyr::relocate(time,.after = event)
-
-
