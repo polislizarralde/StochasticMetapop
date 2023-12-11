@@ -8,8 +8,23 @@ library(readxl)
 # scania geometry
 scania <- readRDS("data/scania_geometry.RDS")
 
+# observations
+
+# Ystad (node 1) and Oja (node 2) start in june 1712
+# Stora Kopinge (node 8) and Bjaresjo start (node 4) in july 1712
+# Bromma (node 5) starts in aug 1712.
+# Hedeskoga (node 3) starts in sep 1712.
+# Stora Herrestad (node 6) and Borrie (node 7) unknown.
+
+# Roughly:
+# Ystad (node 1) and Oja (node 2) start at day 0, and Ystad has about 210 days of plague. Oja about 300 days.
+# Stora Kopinge (node 8) and Bjaresjo (node 4) start at day 30. Stora Kopinge is done by day 240. Baresjo is done around day 60.
+# Bromma (node 5) starts at day 60. Not visualized on the map anymore after its 'false start' in april.
+# Hedeskoga (node 3) starts around day 90, and has about 60 days of plague.
+
+
 # local dynamic in each node
-u0 <- read_excel("data/data_seven_nodes.xlsx")
+u0 <- read_excel("data/data_seven_nodes_BVS.xlsx")
 u0 <- t(u0)
 
 # node lookup of Ystad etc.
@@ -28,7 +43,7 @@ parameters <- c("beta", "mu")
 
 colnames(u0) <- compartments
 
-tspan <- seq(from = 1, to = 350, by = 1) # Switched to daily.
+tspan <- seq(from = 1, to = 300, by = 1) # Switched to daily.
 
 # EMatrix (#compartments x #events). For each column vector j we put 1 if the compartment
 # participated in the event j, otherwise zero.
@@ -58,31 +73,44 @@ relevant_events <- dplyr::filter(all_possible_events,node %in% nodes & dest %in%
 # Expand the relevant events to include a time axis
 all_relevant_events <- tidyr::crossing(relevant_events, time = tspan) %>% dplyr::relocate(time,.after = event)
 
+# Clean up a little
+rm(relevant_events,all_possible_events)
 
 # Parameters
-local_parameters <- data.frame(beta = c(0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6),
-                                 mu = c(0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7))   
-
-gravity_scaler <- 0.01
+gravity_scaler <- 0.08
 events <- all_relevant_events
 events$proportion <- events$proportion * gravity_scaler
 
+set_num_threads(1)
+
 model <- mparse(transitions = transitions,
                 compartments = compartments,
-                gdata = c(sigma = 0.4 , gamma = 0.1),
-                ldata = local_parameters,
+                gdata = c(beta = 1.1, mu = 0.7, sigma = 0.06 , gamma = 0.5),
                 u0 = u0,
                 E = E,
                 events = events,
                 tspan = tspan)
-#set.seed(123)
-#set_num_threads(1)
+
+# Manual fitting:
+rseed <- sample(1:1000,1)
+#set.seed(rseed)
+set.seed(569)
 result <- run(model = model)
+traj <- trajectory(result)
+ggplot(dplyr::filter(traj,node %in% c(1,2,3,4,8))) + geom_line(aes(x=time,y=I)) + facet_wrap(~node)
 
-# One way to plot:
-ggplot(trajectory(run(model = model))) + geom_line(aes(x=time,y=I)) + facet_wrap(~node)
+# Roughly what we want to observe:
+# Ystad (node 1) starts at day 0 until day 210.
+# Oja (node 2) start at day 0, until day 300.
+# Bjaresjo (node 4) start at day 30 until day 60.
+# Stora Kopinge (node 8) starts at day 30 until day 240.
+# Hedeskoga (node 3) starts around day 90 until day 150.
 
-# One way to plot: https://www.rdocumentation.org/packages/SimInf/versions/5.1.0/topics/plot-methods
+# Manual fitting. Can we manage that without a vector? Sort of seems to work.
+
+
+       
+# Other ways to plot: https://www.rdocumentation.org/packages/SimInf/versions/5.1.0/topics/plot-methods
 plot(result)
 
 # One way to plot:
