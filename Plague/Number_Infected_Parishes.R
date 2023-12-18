@@ -1,3 +1,4 @@
+library(ggplot2)
 library(lubridate)
 library(dplyr)
 library(readr) # for read csv files
@@ -52,12 +53,28 @@ example1 <- infectedParishes[infectedParishes$ParishName %in% c('YSTAD', 'ÖJA',
 
 
 # Call the function
-result <- count_infected_by_month(example1, 'JUN 1712', 0)
+result_example1 <- count_infected_by_month(example1, 'JUN 1712', 0)
+result_example1
+
+# Use the count_infected_by_month() function and store the result
+results <- count_infected_by_month(infectedParishes, 'JAN 1712', 0, 'BeginPlaguePeriod', 'EndPlaguePeriod')
+
+# Convert 'date' column to Date class
+results$date <- as.Date(results$date)
+
+# Plot the infected parishes per month
+ggplot(data = results, aes(x = date, y = NumberInfectedParishes)) +
+  geom_line(color = "blue") +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "4 month") +
+  theme(axis.text.x = element_text(angle = 45)) +
+  labs(x = "Month", y = "Number of infected parishes", title = "South Scania")
 
 
-# Print the result
-print(result)
-
-
-
+# Plot the infected parishes per month
+ggplot(data = results, aes(x = date, y = CumulativeInfectedParishes)) +
+  geom_line(color = "orange") +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "4 month") +
+  theme(axis.text.x = element_text(angle = 45, size = 9),
+        axis.text.y = element_text(size=9)) +
+  labs(x = "Month", y = "Cumulative number of infected parishes", title = "South Scania")
 
