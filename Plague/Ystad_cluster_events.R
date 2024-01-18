@@ -9,7 +9,7 @@ library(readr) # for read csv files
 # set the directory to find the csv in the folder data
 setwd("~/Documents/GitHub/StochasticMetapop/Plague")
 
-data_cluster <- read_csv("data/Ystad_group.csv")
+data_cluster <- read_csv("/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject/data/private/Ystad_group.csv")
 beginDaysPlague <- data_cluster$BeginDaysPlague
 endDaysPlague <- data_cluster$EndDaysPlague
 parish_names <- data_cluster$ParishName
@@ -18,9 +18,10 @@ maxDays <- max(endDaysPlague)
 cum_deaths <- data_cluster$VictimsNumber
 
 # Importing the file with the gravitational term Ni*Nj/dij^2
-grav_matrix <- read_csv("data/gravitational.csv")
+grav_matrix <- read_csv("/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject/data/private/gravitational.csv")
 colnames(grav_matrix) <- parish_names
 weight_matrix <- as.matrix(grav_matrix)
+grav_matrix$YSTAD[2]
 
 # generating the initial conditions for the model
 npatches <- length(parish_names)
@@ -155,9 +156,9 @@ events
 
 
 # Defining mu and beta for each node randomly 
-local_parameters <- data.frame(beta = c(0.7,0.5,0.5,0.5,0.5,0.5,0.5,0.5),
+local_parameters <- data.frame(beta = runif(npatches),
                                  mu = runif(npatches))
-local_parameters
+class(local_parameters)
 
 # Defining the model considering some events
 model <- mparse(
@@ -170,16 +171,15 @@ model <- mparse(
   u0 = u0,
   tspan = 1:maxDays + 20
 )
+u0
 
 set.seed(123)
 set_num_threads(1)
 
-result <- run(model = model)
-
 # Cumulative deaths
 traj_D <- trajectory(model = result, compartments = "D")
 # Show the points per node
-#View(traj_D)
+View(traj_D)
 # Plot a specific trajectory
 ggplot(traj_D) + geom_line(aes(x = time, y = D, color = factor(node)))
 
@@ -189,4 +189,3 @@ traj_I <- trajectory(model = result, compartments = "I")
 #View(traj_I)
 # Plot a specific trajectory
 ggplot(traj_I) + geom_line(aes(x = time, y = I, color = factor(node)))
-
