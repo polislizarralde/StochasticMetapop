@@ -169,34 +169,58 @@ objectiveFunction_2 <- function(parameters, gdf, n) {
 # date
 # cum_infected_parishes_by_month
 
+ncopies<-20
+
+ps<- makeParamSet(
+  makeNumericVectorParam("beta", len=npatches, lower = 0, upper = 1),
+  makeNumericVectorParam("mu",len=npatches, lower = 0, upper = 1)
+)
+ps
+
+# Generate an initial design
+des <- generateDesign(n = ncopies, par.set = ps)
+
+#des$y = apply(des,1,objectiveFunction_2_mlr)
+
+params <- data.frame(beta = c(1,1,1),
+                     mu = c(0.1,0.2,0.3))
 
 # Define the objective function for mlrMBO
 objectiveFunction_2_mlr <- makeSingleObjectiveFunction(
   name = "My Function",
   noisy = TRUE,
   has.simple.signature= TRUE,
-  fn = function(x){
-    parameters <- data_frame(beta=x[1:npatches], mu=x[(npatches+1):(2*npatches)])
-    return(objectiveFunction_2(parameters = parameters, gdf = example1, n = 0))
-  },
-  par.set = makeParamSet(
-    makeNumericVectorParam("beta",len = npatches, lower = 0, upper = 1),
-    makeNumericVectorParam("mu", len = npatches, lower = 0, upper = 1)
-  ),
+  fn = function(xs){
+    
+    beta <- rep(0, npatches)
+    K <- 1
+    for (I in 1:npatches){
+      beta[K] <- xs[I]
+      K <- K + 1
+    }
+    mu <- rep(0, npatches)
+    K <- 1
+    for (I in (npatches+1):(2*npatches)){
+      mu[K] <- xs[I]
+      K <- K + 1
+    }
+    
+    # now, make a df such that the columns are the vectors beta and mu
+    beta <- as.data.frame(beta)
+    mu <- as.data.frame(mu)
+    beta_mu <- cbind(beta, mu)
+    colnames(beta_mu) <- c("beta", "mu")
+    print("beta_mu")
+    print(beta_mu)
+    
+    return (objectiveFunction_2(parameters = beta_mu, gdf = example1, n = 0))},
+  par.set = ps,
   minimize = TRUE
 )
 
-# Generate an initial design
-des <- generateDesign(n = 20, par.set = getParamSet(objectiveFunction_2_mlr))
-des$y = apply(des,1,objectiveFunction_2_mlr)
-
-# Set control
-# ctrl <- makeMBOControl()
-# ctrl <- setMBOControlInfill(ctrl, opt = "focussearch", crit = makeMBOInfillCritCB(),
-#                             opt.focussearch.maxit = 10, opt.focussearch.points = 10000)
 
 ctrl = makeMBOControl()
-ctrl = setMBOControlTermination(control, iters = 20)
+ctrl = setMBOControlTermination(control, iters = 10)
 ctrl = setMBOControlInfill(control, crit = makeMBOInfillCritEI())  # Not sure if this is the default, or something Avelda added.
 
 
