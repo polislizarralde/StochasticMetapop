@@ -94,6 +94,107 @@ count_infected_parishes_month <- function(df, date, n
   return(results)
 }
 
+plot_cum_infected_parishes_month <- function(df, date, n, column_name = 'ParishName', start_date = 'BeginPlaguePeriod', end_date = 'EndPlaguePeriod') {
+  results <- count_infected_by_month(df, date, n, column_name, start_date, end_date)
+  
+  # Ensure 'date' exists in 'results' and not 'df'
+  if(!"date" %in% names(results)) {
+    stop("Error: 'date' column not found in 'results'")
+  }
+  
+  results$date <- as.Date(results$date, format="%b %Y")
+  
+  ggplot(results, aes(x=date, y=CumInfectParishes)) +
+    geom_line(color='orange') +
+    scale_x_date(labels = scales::date_format("%b %Y")) +
+    scale_y_continuous(limits = c(0,npatches))+
+    labs(x='Month', y='Cum. No. infected parishes', title='South Scania') +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+# Plot the results
+plot_cum_infect_parishes_model <- function(best_params, gdf, n) {
+  
+  # Extract the best parameters
+  best_params <- res$x
+  
+  # Create a data frame with the best parameters
+  df_best_params <- as.data.frame(res$x)
+  
+  # Evaluate the model in the best parameters
+  model_SEIRD <- mparse(transitions = transitions,
+                        compartments = compartments,
+                        gdata = c(sigma = 0.17 , gamma = 0.4),
+                        ldata = df_best_params,
+                        u0 = u0,
+                        tspan = 1:maxDays
+                        # ,
+                        # events = events,
+                        # E = E
+  )
+  result <- run(model = model_SEIRD)
+  traj_D <- trajectory(model = result, compartments = "D")
+  
+  # Defining the initial date of the gdf to start counting the number of infected parishes per month
+  date <- min(gdf$BeginPlaguePeriod, na.rm = TRUE)
+  
+  # Getting the number of infected parishes per month from the data
+  cum_infected_parishes_by_month <- count_infected_by_month(gdf,date,n)
+  
+  # Initializing the number of infected parishes per month for the model's output
+  infected_parishes <- rep(0, length(cum_infected_parishes_by_month$date))
+  
+  # Computing the total number of parishes in the dataframe without repetitions
+  total_parishes <- length(gdf$ParishName)
+  
+  # Computing the number of infected parishes per month from the model's output
+  for (i in 1:length(cum_infected_parishes_by_month)) {
+    init_days <- cum_infected_parishes_by_month[i,'DaysFromInitDate']
+    final_days <- cum_infected_parishes_by_month[i,'DaysToEndOfMonth']
+    
+    for (k in 1:total_parishes) {
+      for (day in init_days:final_days) {
+        # Check if there are any rows that satisfy the condition
+        rows <- traj_D[traj_D$node == k & traj_D$time == day, ]
+        if (nrow(rows) == 0){
+          break # Breaks the innermost loop when the condition is met
+        }
+        else if(nrow(rows) > 0){
+          if(rows$D >= 1){
+            infected_parishes[i] <- infected_parishes[i] + 1
+            break # Breaks the innermost loop when the condition is met
+          }
+        }
+      }
+    }
+  }
+  # Create a new dataframe to store infected parishes and date
+  df <- data.frame(
+    "month" = cum_infected_parishes_by_month$date,
+    "infected_parishes" = infected_parishes
+  )
+  # Plot the results
+  df$month <- as.Date(df$month, format="%b %Y")
+  
+  ggplot(df, aes(x=month)) +
+    # Model estimation
+    geom_line(aes(y=infected_parishes), color='blue') +
+    # Real data
+    geom_line(aes(y=cum_infected_parishes_by_month$CumInfectParishes), color='orange') +
+    scale_x_date(labels = scales::date_format("%b %Y")) +
+    scale_y_continuous(limits = c(0,npatches))+
+    labs(x='Month', y='Cum. No. infected parishes', title='South Scania') +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+
+
+
+
+
+
+
+
 ### This doesn't work yet
 # Function to count the number of deaths per month
 # count_victims_by_month <- function(df, column_name = 'ParishName', begin_date = 'BeginPlaguePeriod',

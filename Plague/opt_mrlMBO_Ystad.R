@@ -9,15 +9,15 @@ setwd("~/Documents/GitHub/StochasticMetapop/Plague")
 
 source("/Users/dianapli/Documents/GitHub/StochasticMetapop/Plague/Number_Infected_Parishes.R")
 
-infectedParishes <- read.csv("/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject/data/private/infectedSouthParishes.csv")
+infec_south_parishes <- read.csv("/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject/data/private/infectedSouthParishes.csv")
 # Testing the function with a small example
 # Filter rows where ParishName is 'YSTAD', 'ÖJA' or 'HEDESKOGA'
-example1 <- infectedParishes[infectedParishes$ParishName %in% c('YSTAD', 'ÖJA', 'HEDESKOGA'), ]
-#example1 <- infectedParishes[infectedParishes$ParishName %in% c('YSTAD'), ]
+example1 <- infec_south_parishes[infec_south_parishes$ParishName %in% c('YSTAD', 'ÖJA', 'HEDESKOGA'), ]
+# example1 <- infec_south_parishes[infec_south_parishes$ParishName %in% c('YSTAD'), ]
 parish_names <- example1$ParishName
 patchPop <- example1$BEF1699
 cum_deaths <- example1$VictimsNumber
-maxDays <- 30 # Value takes from python
+maxDays <- 303 # Value takes from python
 
 # generating the initial conditions for the model
 npatches <- length(parish_names)
@@ -109,8 +109,9 @@ objectiveFunction_2 <- function(parameters, gdf, n) {
                         ldata = parameters,
                         u0 = u0,
                         tspan = 1:maxDays
-                        #events = events,
-                        #E = E
+                        # ,
+                        # events = events,
+                        # E = E
   )
   result <- run(model = model_SEIRD)
   traj_D <- trajectory(model = result, compartments = "D")
@@ -182,8 +183,8 @@ des <- generateDesign(n = ncopies, par.set = ps)
 
 #des$y = apply(des,1,objectiveFunction_2_mlr)
 
-params <- data.frame(beta = c(1,1,1),
-                     mu = c(0.1,0.2,0.3))
+# params <- data.frame(beta = c(1,1,1),
+#                      mu = c(0.1,0.2,0.3))
 
 # Define the objective function for mlrMBO
 objectiveFunction_2_mlr <- makeSingleObjectiveFunction(
@@ -219,34 +220,18 @@ objectiveFunction_2_mlr <- makeSingleObjectiveFunction(
 )
 
 
-ctrl = makeMBOControl()
-ctrl = setMBOControlTermination(control, iters = 10)
-ctrl = setMBOControlInfill(control, crit = makeMBOInfillCritEI())  # Not sure if this is the default, or something Avelda added.
-
+control = makeMBOControl()
+control = setMBOControlTermination(control, iters = 50)
+control = setMBOControlInfill(control, crit = makeMBOInfillCritEI())  # Not sure if this is the default, or something Avelda added.
 
 # Run the optimization
-res <- mbo(fun = objectiveFunction_2_mlr, design = des, control = ctrl, show.info = TRUE)
+res <- mbo(fun = objectiveFunction_2_mlr, design = des, control = control, show.info = TRUE)
 
 # Extract the best parameters
 best_params <- res$x
 
-# Print the best parameters
-print(best_params)
+# Plot the cumulative number of parishes per month from the data
+#plot_cum_infected_parishes_month(example1, "JUN 1712", 0)
 
-# Create a data frame with the best parameters
-df_best_params <- as.data.frame(res$x)
-df_best_params
-
-model_SEIRD <- mparse(transitions = transitions,
-                      compartments = compartments,
-                      gdata = c(sigma = 0.17 , gamma = 0.4),
-                      ldata = df_best_params,
-                      u0 = u0,
-                      tspan = 1:maxDays
-                      #events = events,
-                      #E = E
-                    )
-result <- run(model = model_SEIRD)
-traj_D <- trajectory(model = result, compartments = "D")
-ggplot(traj_D) + geom_line(aes(x = time, y = D, color = factor(node)))
-
+# Plot the cumulative number of parishes per month using the model estimation
+plot_cum_infect_parishes_model(res$x, example1,0)
