@@ -1,0 +1,293 @@
+---
+title: "Yellow group (YSTAD) woth events from Ystad to the other parishes"
+output: html_document
+date: "2024-01-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{python}
+import sys
+path_project_plague = "/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject"
+sys.path.append(path_project_plague)
+from funct_process_data import *
+```
+
+```{r load libraries}
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(readr) # for read csv files
+
+library(groundhog)
+pkgs <- c("conflicted","SimInf","ggplot2","dplyr","mlrMBO")
+groundhog.library(pkgs, "2023-04-30")
+conflicts_prefer(dplyr::filter)
+
+# to interact with Python
+library(reticulate)
+path_project_plague <- "/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject"
+```
+
+```{r load functions}
+source_python(paste0(path_project_plague, "/funct_process_data.py"))
+```
+
+```{r load data}
+YSTAD_group <- read_csv("/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject/data/private/yellow_group.csv", col_types = cols())
+```
+
+```{r}
+parish_names <- YSTAD_group$ParishName
+patchPop <- YSTAD_group$BEF1699
+maxDays <- max(YSTAD_group$EndDaysPlague)
+```
+
+```{r}
+# generating the initial conditions for the model
+npatches <- length(parish_names)
+S0 <- rep(0, npatches) 
+E0 <- rep(0, npatches)
+R0 <- rep(0, npatches)
+D0 <- rep(0, npatches)
+I0 <- rep(0, npatches)
+I0[1] <- 1.0
+
+for (i in 1:npatches) {
+  S0[i] <- patchPop[i] - E0[i] - I0[i] - R0[i]
+}
+
+u0 <- data.frame(
+  S0 = S0,
+  E0 = E0,
+  I0 = I0,
+  R0 = R0,
+  D0 = D0
+)
+
+# SEIRD model.
+transitions <- c(
+  "S-> beta*S*I/(S+E+I+R) -> E",
+  "E -> sigma*E -> I",
+  "I -> gamma*(1-mu)*I -> R",
+  "I -> (gamma*mu)*I -> D"
+)
+compartments <- c("S", "E", "I", "R", "D")
+parameters <- c("beta", "mu")
+colnames(u0) <- compartments
+
+# EMatrix (#compartments x #events). For each column vector j we put 1 if the compartment
+# participated in the event j, otherwise zero.
+E <- matrix(
+  c(0, 1, 1, 0, 0),
+  nrow = 5,
+  ncol = 1,
+  dimnames = list(c("S", "E", "I", "R", "D"),
+                  c("event1"))
+)
+```
+
+
+```{r}
+grav_matrix <- read_csv("/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject/data/private/matrix_yellow_group.csv", col_types = cols())
+
+# Assign column names
+colnames(grav_matrix) <- parish_names
+```
+
+```{r}
+# Create an external transfer event to move exposed or infected individuals
+# from node 1 (Ystad) to other nodes starting seven days after the initial plague
+# period in Ystad and every seven days until proportional to the gravity term
+
+data_init_node <- subset(YSTAD_group, ParishName == "YSTAD")
+initial_time <- data_init_node$BeginDaysPlague[1]
+
+# Initialize an empty list
+list_of_events2 <- list()
+for(i in 2:npatches){
+infect_event2 <-
+  lapply(seq(from = initial_time + 7, to = maxDays, by = 7),
+         function(t) {
+               data.frame(
+               event = "extTrans",
+               time = t,
+               node = 1,
+               dest = i,
+               n = 0,
+               proportion = grav_matrix$YSTAD[i],
+               select = 1,
+               shift = 0
+             )
+            })
+# Append the events to list_of_events2
+# list_of_events2 is a list of lists of dataframes
+list_of_events2[[i]] <- infect_event2
+}
+events <- do.call(rbind, unlist(list_of_events2, recursive = FALSE))
+```
+
+
+```{r}
+# call a file in R to use some functions
+source("Number_Infected_Parishes.R")
+count_infected_parishes_month(YSTAD_group, 'JUN 1712', 0)
+plot_parishes_month(YSTAD_group, 'JUN 1712', 0)
+```
+
+```{r}
+# Function to calculate the error in the cumulative number of infected parishes per month
+objectiveFunction_2 <- function(parameters, gdf, n) {
+  
+  model_SEIRD <- mparse(transitions = transitions,
+                        compartments = compartments,
+                        gdata = c(sigma = 0.17 , gamma = 0.4),
+                        ldata = parameters,
+                        u0 = u0,
+                        tspan = 1:maxDays,
+                        events = events,
+                        E = E
+  )
+  result <- run(model = model_SEIRD)
+  traj_D <- trajectory(model = result, compartments = "D")
+  
+  # Defining the initial date of the gdf to start counting the number of infected parishes per month
+  date <- gdf$BeginPlaguePeriod[1] # Initial
+  
+  # Getting the number of infected parishes per month from the data
+  cum_infected_parishes_by_month <- count_infected_parishes_month(gdf,date,n)
+  
+  # Initializing the number of infected parishes per month for the model's output
+  infected_parishes <- rep(0, length(cum_infected_parishes_by_month))
+  
+  # Initializing the error between the model's output and the data
+  error <- rep(0, length(cum_infected_parishes_by_month))
+  
+  # Computing the total number of parishes in the dataframe without repetitions
+  total_parishes <- length(gdf$ParishName)
+  
+  # Computing the number of infected parishes per month from the model's output
+  # i is the month. k is the parish. day is the day of the month
+  for (i in 1:length(cum_infected_parishes_by_month)) {
+    init_days <- cum_infected_parishes_by_month[i,'DaysFromInitDate']
+    final_days <- cum_infected_parishes_by_month[i,'DaysToEndOfMonth']
+    
+    for (k in 1:total_parishes) {
+      for (day in init_days:final_days) {
+        # Check if there are any rows that satisfy the condition
+        rows <- traj_D[traj_D$node == k & traj_D$time == day,]
+        # rows represent the solution of the model at time t for node k
+        if (nrow(rows) == 0){
+          break # Breaks the innermost loop when the condition is met
+        }
+        else if(nrow(rows) > 0){
+          if(rows$D >= 1){
+            infected_parishes[i] <- infected_parishes[i] + 1
+            break # Breaks the innermost loop when the condition is met
+          }
+        }
+      }
+    }
+    error[i] <- (infected_parishes[i] - cum_infected_parishes_by_month[i,'NumberInfectedParishes'])^2
+  }
+  
+  # Computing the error between the model's output and the data
+  total_error <- (1/length(cum_infected_parishes_by_month)) * (1/total_parishes)^2 * sum(error)
+  
+  return(total_error)
+}
+```
+
+```{r}
+
+ncopies<-50
+
+ps<- makeParamSet(
+  makeNumericVectorParam("beta", len=npatches, lower = 0, upper = 1),
+  makeNumericVectorParam("mu",len=npatches, lower = 0, upper = 1)
+)
+
+# Generate an initial design
+des <- generateDesign(n = ncopies, par.set = ps)
+
+# Define the objective function for mlrMBO
+objectiveFunction_2_mlr <- makeSingleObjectiveFunction(
+  name = "My Function",
+  noisy = TRUE,
+  has.simple.signature= TRUE,
+  fn = function(xs){
+    
+    beta <- rep(0, npatches)
+    K <- 1
+    for (I in 1:npatches){
+      beta[K] <- xs[I]
+      K <- K + 1
+    }
+    mu <- rep(0, npatches)
+    K <- 1
+    for (I in (npatches+1):(2*npatches)){
+      mu[K] <- xs[I]
+      K <- K + 1
+    }
+    
+    # now, make a df such that the columns are the vectors beta and mu
+    beta <- as.data.frame(beta)
+    mu <- as.data.frame(mu)
+    beta_mu <- cbind(beta, mu)
+    colnames(beta_mu) <- c("beta", "mu")
+    return (objectiveFunction_2(parameters = beta_mu
+                                , gdf = YSTAD_group, n = 0))},
+  par.set = ps,
+  minimize = TRUE
+)
+
+
+control = makeMBOControl()
+control = setMBOControlTermination(control, iters = 50)
+control = setMBOControlInfill(control, crit = makeMBOInfillCritEI())  # Not sure if this is the default, or something Avelda added.
+
+des$y = apply(des,1,objectiveFunction_2_mlr)
+
+# Run the optimization
+res <- mbo(fun = objectiveFunction_2_mlr, design = des, control = control, show.info = TRUE)
+```
+
+```{r}
+# Extract the best parameters
+best_params <- res$x
+best_solution <- res$y
+```
+
+```{r}
+# Create a data frame with the best parameters
+df_best_params <- as.data.frame(best_params)
+
+# Solving the model with the best parameters
+model_SEIRD <- mparse(transitions = transitions,
+                      compartments = compartments,
+                      gdata = c(sigma = 0.17 , gamma = 0.4),
+                      ldata = df_best_params,
+                      u0 = u0,
+                      tspan = 1:maxDays,
+                      events = events,
+                      E = E
+)
+set.seed(123)
+set_num_threads(1)
+result <- run(model = model_SEIRD)
+plot(result)
+```
+
+```{r}
+# Plot the cumulative number of parishes per month using the model estimation
+input <- run_infected_parishes_model(best_params, YSTAD_group, 0)
+
+plot_infected_parishes(input, YSTAD_group, 0)
+```
+
+```{r}
+source("Number_Infected_Parishes.R")
+#plot_experiment(3,best_params, YSTAD_group, 0)
+```
