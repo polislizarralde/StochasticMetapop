@@ -1,0 +1,45 @@
+---
+title: "TestPythonR"
+output: html_document
+date: "2024-01-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{python}
+import sys
+path_project_plague = "/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject"
+sys.path.append(path_project_plague)
+from funct_process_data import *
+print(TEST)
+```
+
+```{r load libraries}
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(readr) # for read csv files
+
+# to interact with Python
+library(reticulate)
+path_project_plague <- "/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject"
+```
+
+```{r load functions}
+source_python(paste0(path_project_plague, "/funct_process_data.py"))
+```
+
+```{r load data}
+infectedParishes <- read.csv("/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject/data/private/infectedSouthParishes.csv")
+#
+example1 <- infectedParishes[infectedParishes$ParishName %in% c('YSTAD', 'ÖJA', 'HEDESKOGA', 'ELJARÖD'), ]
+```
+
+
+```{r warning=FALSE}
+count_victims_by_month(example1)
+```
+

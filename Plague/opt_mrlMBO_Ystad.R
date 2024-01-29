@@ -165,10 +165,10 @@ objectiveFunction_2 <- function(parameters, gdf, n) {
 # objectiveFunction_2(parameters = parameters, gdf = example1, npar = 2, n = 0)
 # total_parishes <- length(example1$ParishName)
 # total_parishes
-# date <- min(example1$BeginPlaguePeriod, na.rm = TRUE)
-# cum_infected_parishes_by_month <- count_infected_by_month(example1,date,0)
-# date
-# cum_infected_parishes_by_month
+date <- min(example1$BeginPlaguePeriod, na.rm = TRUE)
+cum_infected_parishes_by_month <- count_infected_by_month(example1,date,0)
+date
+cum_infected_parishes_by_month
 
 ncopies<-20
 
@@ -182,9 +182,6 @@ ps
 des <- generateDesign(n = ncopies, par.set = ps)
 
 #des$y = apply(des,1,objectiveFunction_2_mlr)
-
-# params <- data.frame(beta = c(1,1,1),
-#                      mu = c(0.1,0.2,0.3))
 
 # Define the objective function for mlrMBO
 objectiveFunction_2_mlr <- makeSingleObjectiveFunction(

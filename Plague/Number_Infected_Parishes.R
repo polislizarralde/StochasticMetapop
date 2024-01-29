@@ -33,7 +33,7 @@ count_infected_parishes_month <- function(df, date, n
     df$UniqueID <- paste0(df[[column_name]], '_', df[[start_date]], '_', df[[end_date]])
 
     # Create a dataframe to store the results
-    results <- data.frame(date = dates,
+    results <- data.frame(Month = dates,
                           DaysFromInitDate = as.numeric(dates - min(df[[start_date]]), units="days"),
                           NumberInfectedParishes = 0,
                           CumInfectParishes = 0,
@@ -49,7 +49,7 @@ count_infected_parishes_month <- function(df, date, n
       # and either there is no end date or the end date is after the given date
       infected_nodes <- df[(df[[start_date]] <= date) & (df[[end_date]] >= date), ]
       # Store the results
-      results[results$date == date, 'NumberInfectedParishes'] <- length(unique(infected_nodes$UniqueID))
+      results[results$Month == date, 'NumberInfectedParishes'] <- length(unique(infected_nodes$UniqueID))
       
       # Add the set of infected parishes to the list
       infected_parishes[[i]] <- unique(infected_nodes[[column_name]])
@@ -94,32 +94,28 @@ count_infected_parishes_month <- function(df, date, n
   return(results)
 }
 
-plot_cum_infected_parishes_month <- function(df, date, n, column_name = 'ParishName', start_date = 'BeginPlaguePeriod', end_date = 'EndPlaguePeriod') {
-  results <- count_infected_by_month(df, date, n, column_name, start_date, end_date)
+plot_parishes_month <- function(df, date, n, column_name = 'ParishName', start_date = 'BeginPlaguePeriod', end_date = 'EndPlaguePeriod') {
+  results <- count_infected_parishes_month(df, date, n, column_name, start_date, end_date)
   
   # Ensure 'date' exists in 'results' and not 'df'
-  if(!"date" %in% names(results)) {
+  if(!"Month" %in% names(results)) {
     stop("Error: 'date' column not found in 'results'")
   }
   
-  results$date <- as.Date(results$date, format="%b %Y")
+  results$Month <- as.Date(results$Month, format="%b %Y")
   
-  ggplot(results, aes(x=date, y=CumInfectParishes)) +
+  ggplot(results, aes(x=Month, y=NumberInfectedParishes)) +
     geom_line(color='orange') +
     scale_x_date(labels = scales::date_format("%b %Y")) +
-    scale_y_continuous(limits = c(0,npatches))+
-    labs(x='Month', y='Cum. No. infected parishes', title='South Scania') +
+    labs(x='Month', y='No. infected parishes', title='South Scania') +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 }
 
 # Plot the results
-plot_cum_infect_parishes_model <- function(best_params, gdf, n) {
-  
-  # Extract the best parameters
-  best_params <- res$x
+run_infected_parishes_model <- function(best_params, gdf, n) {
   
   # Create a data frame with the best parameters
-  df_best_params <- as.data.frame(res$x)
+  df_best_params <- as.data.frame(best_params)
   
   # Evaluate the model in the best parameters
   model_SEIRD <- mparse(transitions = transitions,
@@ -127,22 +123,22 @@ plot_cum_infect_parishes_model <- function(best_params, gdf, n) {
                         gdata = c(sigma = 0.17 , gamma = 0.4),
                         ldata = df_best_params,
                         u0 = u0,
-                        tspan = 1:maxDays
-                        # ,
-                        # events = events,
-                        # E = E
+                        tspan = 1:maxDays,
+                        events = events,
+                        E = E
   )
   result <- run(model = model_SEIRD)
   traj_D <- trajectory(model = result, compartments = "D")
   
   # Defining the initial date of the gdf to start counting the number of infected parishes per month
-  date <- min(gdf$BeginPlaguePeriod, na.rm = TRUE)
+  # date <- min(gdf$BeginPlaguePeriod, na.rm = TRUE) # This is not giving the correct date
+  date <- gdf$BeginPlaguePeriod[1] # Initial. works if gdf is sorted by BeginPlaguePeriod
   
   # Getting the number of infected parishes per month from the data
-  cum_infected_parishes_by_month <- count_infected_by_month(gdf,date,n)
+  cum_infected_parishes_by_month <- count_infected_parishes_month(gdf,date,n)
   
   # Initializing the number of infected parishes per month for the model's output
-  infected_parishes <- rep(0, length(cum_infected_parishes_by_month$date))
+  infected_parishes <- rep(0, length(cum_infected_parishes_by_month$Month))
   
   # Computing the total number of parishes in the dataframe without repetitions
   total_parishes <- length(gdf$ParishName)
@@ -168,9 +164,18 @@ plot_cum_infect_parishes_model <- function(best_params, gdf, n) {
       }
     }
   }
+
+  return(infected_parishes)
+}
+
+plot_infected_parishes <- function(infected_parishes, gdf, n){
+  date <- gdf$BeginPlaguePeriod[1] # Initial. works if gdf is sorted by BeginPlaguePeriod
+  # Getting the number of infected parishes per month from the data
+  cum_infected_parishes_by_month <- count_infected_parishes_month(gdf,date,n)
+  
   # Create a new dataframe to store infected parishes and date
   df <- data.frame(
-    "month" = cum_infected_parishes_by_month$date,
+    "month" = cum_infected_parishes_by_month$Month,
     "infected_parishes" = infected_parishes
   )
   # Plot the results
@@ -180,10 +185,155 @@ plot_cum_infect_parishes_model <- function(best_params, gdf, n) {
     # Model estimation
     geom_line(aes(y=infected_parishes), color='blue') +
     # Real data
-    geom_line(aes(y=cum_infected_parishes_by_month$CumInfectParishes), color='orange') +
+    geom_line(aes(y=cum_infected_parishes_by_month$NumberInfectedParishes), color='orange') +
     scale_x_date(labels = scales::date_format("%b %Y")) +
-    scale_y_continuous(limits = c(0,npatches))+
-    labs(x='Month', y='Cum. No. infected parishes', title='South Scania') +
+    #scale_y_continuous(limits = c(0,total_parishes))+
+    labs(x='Month', y='No. infected parishes', title='South Scania') +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+}
+
+library(ggplot2)
+
+plot_experiment <- function(iterations, best_params, gdf, n) {
+  # run iterations times the model and store the results in a list
+  # and make another function to plot the results
+  results <- vector("list", iterations)
+  colors_iterate <- rainbow(iterations)
+  
+  # Create an empty data frame to store the results
+  df <- data.frame(month = numeric(0), value = numeric(0))
+  cum_infected_parishes_by_month <- count_infected_parishes_month(gdf, date, n)
+  
+  # Ensure that the 'month' column is numeric and sorted
+  cum_infected_parishes_by_month$month <- as.numeric(cum_infected_parishes_by_month$month)
+  cum_infected_parishes_by_month <- cum_infected_parishes_by_month[order(cum_infected_parishes_by_month$month), ]
+  
+  for (i in 1:iterations) {
+    result <- run_infected_parishes_model(best_params, gdf, n)
+    results[[i]] <- result
+    df <- rbind(df, data.frame(month = seq_along(result), value = result))
+  }
+  
+  # Check if 'df' is empty before creating the plot
+  if (nrow(df) == 0) {
+    warning("No data to plot.")
+    return(NULL)
+  }
+  
+  # Create the plot
+  plot <- ggplot(df, aes(x = month, y = value, color = 'Model')) +
+    geom_line() +
+    scale_x_continuous(breaks = seq(1, nrow(df), length.out = 6),
+                       labels = seq(1, nrow(df), length.out = 6)) +
+    labs(x = 'Month', y = 'No. infected parishes', title = 'South Scania') +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Add the observed line only if there is data
+  if (!is.null(cum_infected_parishes_by_month)) {
+    plot <- plot + geom_line(data = cum_infected_parishes_by_month,
+                             aes(x = month, y = NumberInfectedParishes),
+                             color = 'orange', linetype = 'dashed')
+  }
+  
+  return(plot)
+}
+
+
+
+
+count_deaths_by_month <- function(gdf, column_name = 'ParishName'
+                                   , begin_date = 'BeginPlaguePeriod'
+                                   , victims_column = 'VictimsNumber'
+                                   , end_date = 'EndPlaguePeriod'
+                                   , pop_size = 'BEF1699') {
+
+  # Create a copy of the dataframe
+  gdf_copy <- gdf
+
+  # Filter the dataframe to get only the infected parishes
+  gdf_copy <- gdf_copy[!is.na(gdf_copy[[begin_date]]), ]
+
+  # Fixing the type of the column to iterate over
+  gdf_copy$new_format_BeginPlaguePeriod <- as.Date(gdf_copy$new_format_BeginPlaguePeriod, format="%Y-%m-%d")
+  gdf_copy$new_format_EndPlaguePeriod <- as.Date(gdf_copy$new_format_EndPlaguePeriod, format="%Y-%m-%d")
+
+  # Sort by the column
+  gdf_copy <- gdf_copy[order(gdf_copy$new_format_BeginPlaguePeriod),]
+
+  # adding a column with the number of days from the beginning of the plague
+  gdf_copy$BeginDaysPlague <- as.integer(gdf_copy$new_format_BeginPlaguePeriod - min(gdf_copy$new_format_BeginPlaguePeriod))
+
+  # Adding a column with the number of days to the end of the plague
+  gdf_copy$EndDaysPlague <- sapply(1:nrow(gdf_copy), function(i) {
+    if (!is.na(as.Date(gdf_copy$new_format_EndPlaguePeriod[i]))) {
+      return(as.integer(as.Date(gdf_copy$new_format_EndPlaguePeriod[i])
+                        - as.Date(gdf_copy$new_format_BeginPlaguePeriod[1])))
+    } else {
+      return(NA)
+    }
+  })
+  
+  # Fix the type of pop_size to integer 
+  gdf_copy[[pop_size]] <- as.integer(gdf_copy[[pop_size]])
+  
+  # Get the gdf sorted by the end of the plague period
+  gdf_copy <- gdf_copy[order(gdf_copy$new_format_EndPlaguePeriod),]
+   
+  # Get the unique dates
+  months <- unique(gdf_copy$new_format_EndPlaguePeriod)
+  days <- unique(gdf_copy$EndDaysPlague)
+  
+  # Filter out the NA values from months
+  months <- months[!is.na(months)]
+  days <- days[!is.na(days)]
+
+  # Create a dataframe to store the results
+  results <- data.frame(EndMonth = months,
+                        CumDays = days,
+                        NumberDeaths = 0,
+                        CumDeaths = 0,
+                        CumPop = 0,
+                        Parishes = "")
+
+  # Initialize total_deaths
+  total_deaths <- 0
+  
+  # Iterate over the dates
+  for (date in months) {
+    
+    # Subset rows where new_format_EndPlaguePeriod is equal to date
+    subset_df <- gdf_copy[gdf_copy$new_format_EndPlaguePeriod == date, ]
+    
+    # Calculate number of deaths
+    numberOfDeaths <- sum(subset_df[[victims_column]], na.rm = TRUE)
+    
+    # Get parishes
+    parishes <- paste(gdf_copy[gdf_copy$new_format_EndPlaguePeriod <= date, column_name], collapse = ",")
+    
+    # Update results dataframe
+    results[results$EndMonth == date, "Parishes"] <- parishes
+    results[results$EndMonth == date, "NumberDeaths"] <- numberOfDeaths
+    
+    # Update total_deaths
+    total_deaths <- total_deaths + numberOfDeaths
+    results[results$EndMonth == date, "CumDeaths"] <- total_deaths
+    
+    # Update CumPop
+    results[results$EndMonth == date, "CumPop"] <- sum(gdf_copy[gdf_copy$new_format_EndPlaguePeriod <= date, pop_size], na.rm = TRUE)
+  }
+  
+
+  return(results)
+}
+
+plot_cum_deaths_by_month <- function(df) {
+  results <- count_deaths_by_month(df)
+  
+  ggplot(results, aes(x=EndMonth, y=CumDeaths)) +
+    geom_line(color='orange') +
+    scale_x_date(date_labels = "%b %Y") +
+    labs(x='Month', y='Cum. number of deaths', title='South Scania') +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 }
 
@@ -191,189 +341,60 @@ plot_cum_infect_parishes_model <- function(best_params, gdf, n) {
 
 
 
-
-
-
-
-### This doesn't work yet
-# Function to count the number of deaths per month
-# count_victims_by_month <- function(df, column_name = 'ParishName', begin_date = 'BeginPlaguePeriod',
-#                                    victims_column = 'VictimsNumber', end_date = 'EndPlaguePeriod', pop_size = 'BEF1699') {
-#   
-#   # Create a copy of the dataframe
-#   df_copy <- df
-#   
-#   # Filter the dataframe to get only the infected parishes
-#   df_copy <- filter(df_copy, !is.na(df_copy[[begin_date]]))
-#   
-#   # Define new column names
-#   new_format_BeginPlaguePeriod <- paste0(begin_date, "_new")
-#   new_format_EndPlaguePeriod <- paste0(end_date, "_new")
-#   
-#   # Convert date columns to datetime format such that for begin_date is the first day of the month and for end_date is the last day of the month
-#   df_copy[[new_format_BeginPlaguePeriod]] <- parse_date_time(df_copy[[begin_date]], orders = "my")
-#   df_copy[[new_format_EndPlaguePeriod]] <- parse_date_time(df_copy[[end_date]], orders = "my") + lubridate::days(lubridate::days_in_month(df_copy[[new_format_EndPlaguePeriod]]) - lubridate::day(df_copy[[new_format_EndPlaguePeriod]]))
-#   
-#   # Sort df_copy by the column new_format_BeginPlaguePeriod in ascending order
-#   df_copy <- df_copy[order(df_copy$new_format_BeginPlaguePeriod), ]
-#   
-#   # Add column with the number of days from the begining of the plague
-#   df_copy$BeginDaysPlague <- as.integer(df_copy$new_format_BeginPlaguePeriod - min(df_copy$new_format_BeginPlaguePeriod))
-#   
-#   # Add column with the number of days from the end of the plague
-#   df_copy$EndDaysPlague <- as.integer(df_copy$new_format_EndPlaguePeriod - min(df_copy$new_format_BeginPlaguePeriod))
-#   
-#   # Fix the type of the victims number column to integer 
-#   df_copy[[victims_column]] <- as.integer(df_copy[[victims_column]])
-#   
-#   # Get the unique dates 
-#   months <- unique(df_copy$new_format_EndPlaguePeriod)
-#   
-#   # Get unique end days of plague
-#   unique_end_days_plague <- unique(df_copy$EndDaysPlague)
-#   
-#   # Ensure both vectors have the same length
-#   if(length(months) > length(unique_end_days_plague)) {
-#     unique_end_days_plague <- c(unique_end_days_plague, rep(NA, length(months) - length(unique_end_days_plague)))
-#   } else if (length(months) < length(unique_end_days_plague)) {
-#     months <- c(months, rep(NA, length(unique_end_days_plague) - length(months)))
-#   }
-#   
-#   results <- data.frame(EndMonth = months,
-#                         CumDays = unique_end_days_plague,
-#                         NumberDeaths = rep(0, length(months)),
-#                         CumDeaths = rep(0, length(months)),
-#                         CumPop = rep(0, length(months)),
-#                         Parishes = rep("", length(months)))
-#   
-#   # Iterate over the dates
-#   total_deaths <- 0
-#   
-#   for (date in months) {
-#     if (!is.na(date)) {
-#       # fill the dataframe "results" so in the correspondant row the
-#       # number of deaths is added to the column number deaths
-#       numberOfDeaths <- sum(df_copy[df_copy$new_format_EndPlaguePeriod == date, victims_column])
-#       parishes <- paste(df_copy[df_copy$new_format_EndPlaguePeriod <= date, column_name], collapse = ",")
-#       results[results$EndMonth == date, 'Parishes'] <- parishes
-#       results[results$EndMonth == date, 'NumberDeaths'] <- numberOfDeaths
-#       total_deaths <- total_deaths + numberOfDeaths
-#       results[results$EndMonth == date, 'CumDeaths'] <- total_deaths
-#       
-#       results[results$EndMonth == date, 'CumPop'] <- sum(df_copy[df_copy$new_format_EndPlaguePeriod <= date, pop_size])
-#     }
-#   }
-#   
-#   return(results)
-# }
-
 # Import the csv file
 infectedParishes <- read.csv("/Users/dianapli/Desktop/PythonMathematicalModeling/docs/PlagueProject/data/private/infectedSouthParishes.csv")
-
-
 # Testing the function with a small example
 # Filter rows where ParishName is 'YSTAD', 'ÖJA' or 'HEDESKOGA'
-example1 <- infectedParishes[infectedParishes$ParishName %in% c('YSTAD', 'ÖJA', 'HEDESKOGA'), ]
+example1 <- infectedParishes[infectedParishes$ParishName %in% c('YSTAD', 'ÖJA', 'HEDESKOGA', 'ELJARÖD'), ]
 
-# example1$new_format_BeginPlaguePeriod <-parse_date_time(example1[["BeginPlaguePeriod"]], orders = "my")
-# example1$new_format_EndPlaguePeriod <- parse_date_time(example1[["EndPlaguePeriod"]], orders = "my") 
-# example1
-# Call the function to count the number of deaths per month
-# res_example1 <- count_deaths_month(example1)
-# res_example1
+plot_cum_deaths_by_month(example1)
+
+# ### Objective Functions
 # 
-# Call the function
-result_example1 <- count_infected_parishes_month(example1, 'JUN 1712', 0)
-result_example1
-
-# Convert 'date' column to Date class
-result_example1$date <- as.Date(result_example1$date)
-
-# Plot the infected parishes per month
-ggplot(data = result_example1, aes(x = date, y = NumberInfectedParishes)) +
-  geom_line(color = "blue") +
-  scale_x_date(date_labels = "%b %Y", date_breaks = "4 month") +
-  theme(axis.text.x = element_text(angle = 45)) +
-  labs(x = "Month", y = "Number of infected parishes", title = "South Scania")
-
-# Plot the cum number of infected parishes per month
-ggplot(data = result_example1, aes(x = date, y = CumInfectParishes)) +
-  geom_line(color = "orange") +
-  scale_x_date(date_labels = "%b %Y", date_breaks = "4 month") +
-  theme(axis.text.x = element_text(angle = 45)) +
-  labs(x = "Month", y = "Cum. number of infected parishes", title = "South Scania")
-
-
-# Use the count_infected_by_month() function and store the result
-results <- count_infected_by_month(infectedSouthParishes, 'JAN 1711', 0
-                                   , 'ParishName'
-                                   , 'BeginPlaguePeriod'
-                                   , 'EndPlaguePeriod')
-results
-# Convert 'date' column to Date class
-results$date <- as.Date(results$date)
-
-# Plot the infected parishes per month
-ggplot(data = results, aes(x = date, y = NumberInfectedParishes)) +
-  geom_line(color = "blue") +
-  scale_x_date(date_labels = "%b %Y", date_breaks = "4 month") +
-  theme(axis.text.x = element_text(angle = 45)) +
-  labs(x = "Month", y = "Number of infected parishes", title = "South Scania")
-
-# Plot the cum number of infected parishes per month
-ggplot(data = results, aes(x = date, y = CumInfectParishes)) +
-  geom_line(color = "orange") +
-  scale_x_date(date_labels = "%b %Y", date_breaks = "4 month") +
-  theme(axis.text.x = element_text(angle = 45)) +
-  labs(x = "Month", y = "Cum. number of infected parishes", title = "South Scania")
-
-
-### Objective Functions
-
-# Function to calculate the error in the cumulative number of infected parishes per month between the model and the data
-objectiveFunction_2 <- function(gdf = example, column_name = "ParishName", n = 0) {
-  
-  # Defining the initial date of the gdf to start counting the number of infected parishes per month
-  date <- min(gdf$BeginPlaguePeriod, na.rm = TRUE)
-  #
-  # Getting the number of infected parishes per month from the data
-  cum_infected_parishes_by_month <- count_infected_by_month(gdf,date,n)
-  
-  # Initializing the number of infected parishes per month for the model's output
-  infected_parishes <- rep(0, length(cum_infected_parishes_by_month))
-  
-  # Initializing the error between the model's output and the data
-  error <- rep(0, length(cum_infected_parishes_by_month))
-  
-  # Computing the total number of parishes in the dataframe without repetitions
-  total_parishes <- length(gdf[[column_name]])
-  
-  # Computing the number of infected parishes per month from the model's output
-  for (i in 1:length(cum_infected_parishes_by_month)) {
-    init_days <- cum_infected_parishes_by_month[i,'DaysFromInitDate']
-    final_days <- cum_infected_parishes_by_month[i,'DaysToEndOfMonth']
-    
-    for (k in 1:length(grouped_by_parish)) {
-      for (day in init_days:final_days) {
-        value_D_subset <- traj[traj$node == k & traj$time == day, ]$D
-        
-        # Check if the subset operation returned an empty vector
-        if (length(value_D_subset) > 0) {
-          value_D <- value_D_subset >= 1
-          
-          if (value_D) {
-            infected_parishes[i] <- infected_parishes[i] + 1
-            break # Breaks the innermost loop when the condition is met
-          }
-        }
-      }
-    }
-    error[i] <- abs(infected_parishes[i] - cum_infected_parishes_by_month[i,'CumInfectParishes'])
-  }
-  
-  
-  # Computing the error between the model's output and the data
-  total_error <- (1/length(cum_infected_parishes_by_month)) * (1/total_parishes) * sum(error)
-  
-  return(list(total_parishes, infected_parishes, error, total_error))
-}
+# # Function to calculate the error in the cumulative number of infected parishes per month between the model and the data
+# objectiveFunction_2 <- function(gdf = example, column_name = "ParishName", n = 0) {
+#   
+#   # Defining the initial date of the gdf to start counting the number of infected parishes per month
+#   date <- min(gdf$BeginPlaguePeriod, na.rm = TRUE)
+#   #
+#   # Getting the number of infected parishes per month from the data
+#   cum_infected_parishes_by_month <- count_infected_by_month(gdf,date,n)
+#   
+#   # Initializing the number of infected parishes per month for the model's output
+#   infected_parishes <- rep(0, length(cum_infected_parishes_by_month))
+#   
+#   # Initializing the error between the model's output and the data
+#   error <- rep(0, length(cum_infected_parishes_by_month))
+#   
+#   # Computing the total number of parishes in the dataframe without repetitions
+#   total_parishes <- length(gdf[[column_name]])
+#   
+#   # Computing the number of infected parishes per month from the model's output
+#   for (i in 1:length(cum_infected_parishes_by_month)) {
+#     init_days <- cum_infected_parishes_by_month[i,'DaysFromInitDate']
+#     final_days <- cum_infected_parishes_by_month[i,'DaysToEndOfMonth']
+#     
+#     for (k in 1:length(grouped_by_parish)) {
+#       for (day in init_days:final_days) {
+#         value_D_subset <- traj[traj$node == k & traj$time == day, ]$D
+#         
+#         # Check if the subset operation returned an empty vector
+#         if (length(value_D_subset) > 0) {
+#           value_D <- value_D_subset >= 1
+#           
+#           if (value_D) {
+#             infected_parishes[i] <- infected_parishes[i] + 1
+#             break # Breaks the innermost loop when the condition is met
+#           }
+#         }
+#       }
+#     }
+#     error[i] <- abs(infected_parishes[i] - cum_infected_parishes_by_month[i,'CumInfectParishes'])
+#   }
+#   
+#   
+#   # Computing the error between the model's output and the data
+#   total_error <- (1/length(cum_infected_parishes_by_month)) * (1/total_parishes) * sum(error)
+#   
+#   return(list(total_parishes, infected_parishes, error, total_error))
+# }
