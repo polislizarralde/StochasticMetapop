@@ -42,11 +42,10 @@ u0 <- data.frame(
   Ilow0 = Ilow0,
   Ihigh0 = Ihigh0,
   R0 = R0,
-  Dcum0 = D0,
+  Dcum0 = Dcum0,
   Sv0 = Sv0,
   Iv0 = Iv0
 )
-u0
 
 # model
 transitions <- c("S -> beta_v * Iv * S / (S+Ilow+Ihigh+R) -> Ilow", 
@@ -77,14 +76,14 @@ global_parameters <- c(index_ave = 23, growth_v = 0.14, beta_v = 0.09
                        , gamma_v = 0.71, beta_low = 0.021, beta_high = 0.66
                        , beta_p = 0.24, sigma = 0.20, gamma = 0.84
                        , mu = 0.46)
+
 # Function to calculate the error in the cumulative number of infected parishes per month between the model and the data
 objectiveFunction_2 <- function(local_parameter, gdf) {
-  # Defining the events
+  
   # Create an external transfer event to move infected vectors from node i to
   # other nodes starting seven days after the initial plague in the node i until
-  # maxDays and every seven days with a proportion given by the connection matrix
+  # maxDays and every seven days 
   
-  # Initialize an empty list
   list_of_events <- list()
   for(i in 1:npatches){
     initial_time <- gdf$BeginDaysPlague[i]
@@ -121,21 +120,21 @@ objectiveFunction_2 <- function(local_parameter, gdf) {
   date <- min(gdf$BeginPlaguePeriod, na.rm = TRUE)
   
   # Getting the number of infected parishes per month from the data
-  cum_infected_parishes_by_month <- count_infected_parishes_month(gdf,date)
+  infected_parishes_month <- count_infected_parishes_month(gdf,date)
   
   # Initializing the number of infected parishes per month for the model's output
-  infected_parishes <- rep(0, length(cum_infected_parishes_by_month))
+  model_infected_parishes_month <- rep(0, length(infected_parishes_month))
   
   # Initializing the error between the model's output and the data
-  error <- rep(0, length(cum_infected_parishes_by_month))
+  error <- rep(0, length(infected_parishes_month))
   
   # Computing the total number of parishes in the dataframe without repetitions
   total_parishes <- length(gdf$ParishName)
   
   # Computing the number of infected parishes per month from the model's output
-  for (i in 1:length(cum_infected_parishes_by_month)) {
-    init_days <- cum_infected_parishes_by_month[i,'DaysFromInitDate']
-    final_days <- cum_infected_parishes_by_month[i,'DaysToEndOfMonth']
+  for (i in 1:length(infected_parishes_month)) {
+    init_days <- infected_parishes_month[i,'DaysFromInitDate']
+    final_days <- infected_parishes_month[i,'DaysToEndOfMonth']
     
     for (k in 1:total_parishes) {
       for (day in init_days:final_days) {
@@ -145,18 +144,20 @@ objectiveFunction_2 <- function(local_parameter, gdf) {
           break # Breaks the innermost loop when the condition is met
         }
         else if(nrow(rows) > 0){
-          if(rows$D >= 1){
-            infected_parishes[i] <- infected_parishes[i] + 1
+          if(rows$Dcum >= 1){
+            model_infected_parishes_month[i] <- model_infected_parishes_month[i] + 1
             break # Breaks the innermost loop when the condition is met
           }
         }
       }
     }
-    error[i] <- (infected_parishes[i] - cum_infected_parishes_by_month[i,'CumInfectParishes'])^2
+    error[i] <- (model_infected_parishes_month[i] - infected_parishes_month[i,'NumberInfectedParishes'])^2
   }
   
+  max_error <- max(error)
+  
   # Computing the error between the model's output and the data
-  total_error <- (1/length(cum_infected_parishes_by_month)) * (1/total_parishes)^2 * sum(error)
+  total_error <- sum(error) /(length(infected_parishes_month) * max_error)
   
   return(total_error)
 }
@@ -192,7 +193,7 @@ des = generateDesign(n = 80, par.set = ps)
 des$y = apply(des, 1, objectiveFunction_2_mlr)
 des <- des[order(des$y),][1:40,]
 
-control = makeMBOControl(final.method = "best.predicted", final.evals = 5)
+control = makeMBOControl(final.method = "best.predicted")
 control = setMBOControlTermination(control, iters = 80)
 control = setMBOControlInfill(control, crit = crit.eqi)
 
@@ -202,15 +203,14 @@ res <- mbo(fun = objectiveFunction_2_mlr, design = des, control = control, show.
 # Printout
 best_params <- res$x
 options(scipen=999)
-best_params <- as.data.frame(best_params)
-best_params
-objectiveFunction_2(best_params, YSTAD_group)
-
 infected_parishes <- run_infected_parishes_model(res$x, global_parameters = global_parameters, gdf = YSTAD_group, n=0)
 infected_parishes
-plot_infected_parishes(infected_parishes, YSTAD_group,0)
+plot_infected_parishes(infected_parishes, YSTAD_group, 0)
 
-## Plot the trajectory of the model
+## Run the model with the best parameters
+best_params <- as.data.frame(best_params)
+objectiveFunction_2(best_params, YSTAD_group)
+
 list_of_events <- list()
 for(i in 1:npatches){
   initial_time <- YSTAD_group$BeginDaysPlague[i]

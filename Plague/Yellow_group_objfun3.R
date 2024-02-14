@@ -47,7 +47,6 @@ u0 <- data.frame(
   Iv0 = Iv0
 )
 
-
 # model
 transitions <- c("S -> beta_v * Iv * S / (S+Ilow+Ihigh+R) -> Ilow", 
                  "S -> beta_p * Ihigh * S / (S+Ilow+Ihigh+R) -> Ihigh",# New equation
@@ -80,12 +79,11 @@ global_parameters <- c(index_ave = 23, growth_v = 0.14, beta_v = 0.09
 
 # Function to calculate the error in the cumulative number of infected parishes per month between the model and the data
 objectiveFunction_3 <- function(local_parameter, gdf) {
-  # Defining the events
+  
   # Create an external transfer event to move infected vectors from node i to
   # other nodes starting seven days after the initial plague in the node i until
-  # maxDays and every seven days with a proportion given by the connection matrix
+  # maxDays and every seven days
   
-  # Initialize an empty list
   list_of_events <- list()
   for(i in 1:npatches){
     initial_time <- gdf$BeginDaysPlague[i]
@@ -118,10 +116,12 @@ objectiveFunction_3 <- function(local_parameter, gdf) {
   )
   result <- run(model = model_subpneumonic)
   traj_D <- trajectory(model = result, compartments = "Dcum")
+  
   # Getting the cumulative number of deaths per month from the data
   cum_deaths_month <- count_deaths_month(gdf)
   
-  # Initializing the cum. number of deaths per month for the model's output
+  # Initializing the number and cum. number of deaths per month for the model's output
+  model_deaths_month <- rep(0, nrow(cum_deaths_month))
   model_cum_deaths <- rep(0, nrow(cum_deaths_month))
   
   # Initializing the error between the model's output and the data
@@ -130,23 +130,30 @@ objectiveFunction_3 <- function(local_parameter, gdf) {
   # Computing the cum. number of deaths per month from the model's output
   for (i in 1:nrow(cum_deaths_month)) {
     day <- cum_deaths_month[i,'CumDays']
-    #data <- cum_deaths_month[i,'CumDeaths']
-    data <- cum_deaths_month[i,'NumberDeaths']/cum_deaths_month[i,'CumPop']
+    data <- cum_deaths_month[i,'CumDeaths']
+    #data <- cum_deaths_month[i,'CumDeaths']/cum_deaths_month[i,'CumPop']
     
-    for (k in 1:npatches){
-      pop_k <- gdf$BEF1699[k]
-      #model_cum_deaths[i] <- model_cum_deaths[i] + (traj_D[traj_D$node == k & traj_D$time == day, ]$D)
-      model_cum_deaths[i] <- model_cum_deaths[i] + ((traj_D[traj_D$node == k & traj_D$time == day, ]$D)/pop_k)
+    for (k in 1:npatches){ 
+      #pop_k <- gdf$BEF1699[k]
+      model_deaths_month[i] <- model_deaths_month[i] + ((traj_D[traj_D$node == k & traj_D$time == day, ]$Dcum))
+      #model_deaths_month[i] <- model_deaths_month[i] + ((traj_D[traj_D$node == k & traj_D$time == day, ]$Dcum)/pop_k)
     }
+    
+    model_cum_deaths[i] <- model_deaths_month[i]
+    
+    if (i > 1){
+      model_cum_deaths[i] <- model_cum_deaths[i-1] + model_cum_deaths[i]
+    } 
     error[i] <- (model_cum_deaths[i] - data)^2
   }
+  
+  max_error <- max(error)
+  
   # Computing the error between the model's output and the data
-  total_error <- (1/length(error)) * sum(error)
+  total_error <- sum(error)/(length(error) * max_error)
   
   return(total_error)
 }
-
-count_deaths_month(YSTAD_group)
 
 ps <- makeParamSet(
   makeNumericVectorParam("Iv_prop", len=npatches, lower = 0, upper = 1)
@@ -179,7 +186,7 @@ des = generateDesign(n = 80, par.set = ps)
 des$y = apply(des, 1, objectiveFunction_2_mlr)
 des <- des[order(des$y),][1:40,]
 
-control = makeMBOControl(final.method = "best.predicted", final.evals = 5)
+control = makeMBOControl(final.method = "best.predicted")
 control = setMBOControlTermination(control, iters = 80)
 control = setMBOControlInfill(control, crit = crit.eqi)
 
@@ -189,10 +196,10 @@ res <- mbo(fun = objectiveFunction_2_mlr, design = des, control = control, show.
 # Printout
 best_params <- res$x
 options(scipen=999)
-
 plot_cum_deaths_model(best_params, YSTAD_group)
 
-## Plot the trajectory of the model
+
+## Run the model with the best parameters
 best_params <- as.data.frame(best_params)
 objectiveFunction_3(best_params, YSTAD_group)
 list_of_events <- list()
@@ -215,7 +222,6 @@ for(i in 1:npatches){
 }
 events <- do.call(rbind, unlist(list_of_events, recursive = FALSE))
 
-# Defining the model
 model_subpneumonic <- mparse(transitions = transitions,
                              compartments = compartments,
                              gdata = global_parameters,
@@ -228,6 +234,3 @@ model_subpneumonic <- mparse(transitions = transitions,
 result <- run(model = model_subpneumonic)
 traj_D <- trajectory(model = result, compartments = "Dcum")
 ggplot(traj_D) + geom_line(aes(x = time, y = Dcum, color = factor(node)))
-
-
-
