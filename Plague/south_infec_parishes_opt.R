@@ -16,6 +16,7 @@ patchPop <- example1$BEF1699
 cum_deaths <- example1$VictimsNumber
 maxDays <- 1520 # Value takes from python
 
+
 # generating the initial conditions for the model
 npatches <- length(parish_names)
 S0 <- rep(0, npatches) 
@@ -72,32 +73,55 @@ grav_matrix <- matrix(c(0.        , 0.0533247 , 0.02542587,
                       byrow = TRUE)
 colnames(grav_matrix) <- c('YSTAD', 'ÖJA', 'HEDESKOGA' )
 
-# Initialize an empty list
-list_of_events2 <- list()
-for(i in 2:npatches){
-  infect_event2 <-
-    lapply(seq(from = initial_time + 7, to = maxDays, by = 7),
-           function(t) {
-             data.frame(
-               event = "extTrans",
-               time = t,
-               node = 1,
-               dest = i,
-               n = 0,
-               proportion = grav_matrix[i,"YSTAD"],
-               select = 1,
-               shift = 0
-             )
-           })
-  # Append the events to list_of_events2
-  # list_of_events2 is a list of lists of dataframes
-  list_of_events2[[i]] <- infect_event2
-}
-events <- do.call(rbind, unlist(list_of_events2, recursive = FALSE))
+# # Initialize an empty list
+# list_of_events2 <- list()
+# for(i in 2:npatches){
+#   infect_event2 <-
+#     lapply(seq(from = initial_time + 7, to = maxDays, by = 7),
+#            function(t) {
+#              data.frame(
+#                event = "extTrans",
+#                time = t,
+#                node = 1,
+#                dest = i,
+#                n = 0,
+#                proportion = grav_matrix[i,"YSTAD"],
+#                select = 1,
+#                shift = 0
+#              )
+#            })
+#   # Append the events to list_of_events2
+#   # list_of_events2 is a list of lists of dataframes
+#   list_of_events2[[i]] <- infect_event2
+# }
+# events <- do.call(rbind, unlist(list_of_events2, recursive = FALSE))
 
 
 # Function to calculate the error in the cumulative number of infected parishes per month between the model and the data
 objectiveFunction_2 <- function(parameters, gdf, n) {
+  # Defining the events
+  # Initialize an empty list
+  list_of_events2 <- list()
+  for(i in 2:npatches){
+    infect_event2 <-
+      lapply(seq(from = initial_time+7, to = maxDays, by = 7),
+             function(t) {
+               data.frame(
+                 event = "extTrans",
+                 time = t,
+                 node = 1,
+                 dest = i,
+                 n = 0,
+                 proportion = grav_matrix[i,"YSTAD"],
+                 select = 1,
+                 shift = 0
+               )
+             })
+    # Append the events to list_of_events2
+    # list_of_events2 is a list of lists of dataframes
+    list_of_events2[[i]] <- infect_event2
+  }
+  events <- do.call(rbind, unlist(list_of_events2, recursive = FALSE))
   
   # Defining the model
   model_SEIRD <- mparse(transitions = transitions,
@@ -105,14 +129,13 @@ objectiveFunction_2 <- function(parameters, gdf, n) {
                         gdata = c(sigma = 0.17 , gamma = 0.4),
                         ldata = parameters,
                         u0 = u0,
-                        tspan = 1:maxDays
-                        # ,
-                        # events = events,
-                        # E = E
+                        tspan = 1:maxDays,
+                        events = events,
+                        E = E
   )
   result <- run(model = model_SEIRD)
-  traj_D <- trajectory(model = result, compartments = "D")
-  
+  #traj_D <- trajectory(model = result, compartments = "D")
+  traj_D <- trajectory(model = result, compartments = "I")
   # Defining the initial date of the gdf to start counting the number of infected parishes per month
   date <- min(gdf$BeginPlaguePeriod, na.rm = TRUE)
   
@@ -167,13 +190,12 @@ objectiveFunction_2 <- function(parameters, gdf, n) {
 # date
 # cum_infected_parishes_by_month
 
-ncopies<-20
+ncopies<-200
 
 ps<- makeParamSet(
   makeNumericVectorParam("beta", len=npatches, lower = 0, upper = 1),
   makeNumericVectorParam("mu",len=npatches, lower = 0, upper = 1)
 )
-ps
 
 # Generate an initial design
 des <- generateDesign(n = ncopies, par.set = ps)
@@ -218,7 +240,7 @@ objectiveFunction_2_mlr <- makeSingleObjectiveFunction(
 
 
 control = makeMBOControl()
-control = setMBOControlTermination(control, iters = 50)
+control = setMBOControlTermination(control, iters = 100, time.budget = 60*60, target.fun.value = 0.01)
 control = setMBOControlInfill(control, crit = makeMBOInfillCritEI())  # Not sure if this is the default, or something Avelda added.
 
 # Run the optimization
@@ -226,9 +248,10 @@ res <- mbo(fun = objectiveFunction_2_mlr, design = des, control = control, show.
 
 # Extract the best parameters
 best_params <- res$x
+plotOptPath(res$opt.path)
 
 # Plot the cumulative number of parishes per month from the data
 #plot_cum_infected_parishes_month(example1, "JUN 1712", 0)
 
 # Plot the cumulative number of parishes per month using the model estimation
-plot_cum_infect_parishes_model(res$x, example1,0)
+#plot_cum_infect_parishes_model(res$x, example1,0)
