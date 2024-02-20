@@ -177,7 +177,13 @@ set.seed(123)
 set_num_threads(1)
 
 # Cumulative deaths
-traj_D <- trajectory(model = result, compartments = "D")
+traj_D <- trajectory(model = result, compartments = "S")
+
+# Compute the length of the points for the first node
+length(traj_D$S[traj_D$node == 1])
+
+
+
 # Show the points per node
 View(traj_D)
 # Plot a specific trajectory

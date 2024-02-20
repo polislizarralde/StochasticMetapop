@@ -77,9 +77,11 @@ global_parameters <- c(index_ave = 23, growth_v = 0.14, beta_v = 0.09
                        , beta_p = 0.24, sigma = 0.20, gamma = 0.84
                        , mu = 0.46)
 
+cum_deaths_month <- count_deaths_month(YSTAD_group)
+cum_deaths_month
+
 # Function to calculate the error in the cumulative number of infected parishes per month between the model and the data
-objectiveFunction_3 <- function(local_parameter, gdf) {
-  
+objectiveFunction_3 <- function(local_parameter, gdf){
   # Create an external transfer event to move infected vectors from node i to
   # other nodes starting seven days after the initial plague in the node i until
   # maxDays and every seven days
@@ -119,10 +121,9 @@ objectiveFunction_3 <- function(local_parameter, gdf) {
   
   # Getting the cumulative number of deaths per month from the data
   cum_deaths_month <- count_deaths_month(gdf)
-  
+ 
   # Initializing the number and cum. number of deaths per month for the model's output
   model_deaths_month <- rep(0, nrow(cum_deaths_month))
-  model_cum_deaths <- rep(0, nrow(cum_deaths_month))
   
   # Initializing the error between the model's output and the data
   error <- rep(0, nrow(cum_deaths_month))
@@ -131,27 +132,17 @@ objectiveFunction_3 <- function(local_parameter, gdf) {
   for (i in 1:nrow(cum_deaths_month)) {
     day <- cum_deaths_month[i,'CumDays']
     data <- cum_deaths_month[i,'CumDeaths']
-    #data <- cum_deaths_month[i,'CumDeaths']/cum_deaths_month[i,'CumPop']
     
     for (k in 1:npatches){ 
-      #pop_k <- gdf$BEF1699[k]
       model_deaths_month[i] <- model_deaths_month[i] + ((traj_D[traj_D$node == k & traj_D$time == day, ]$Dcum))
-      #model_deaths_month[i] <- model_deaths_month[i] + ((traj_D[traj_D$node == k & traj_D$time == day, ]$Dcum)/pop_k)
     }
-    
-    model_cum_deaths[i] <- model_deaths_month[i]
-    
-    if (i > 1){
-      model_cum_deaths[i] <- model_cum_deaths[i-1] + model_cum_deaths[i]
-    } 
-    error[i] <- (model_cum_deaths[i] - data)^2
+     error[i] <- (model_deaths_month[i] - data)^2
   }
   
   max_error <- max(error)
   
   # Computing the error between the model's output and the data
   total_error <- sum(error)/(length(error) * max_error)
-  
   return(total_error)
 }
 

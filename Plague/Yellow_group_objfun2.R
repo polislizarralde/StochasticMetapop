@@ -122,38 +122,47 @@ objectiveFunction_2 <- function(local_parameter, gdf) {
   # Getting the number of infected parishes per month from the data
   infected_parishes_month <- count_infected_parishes_month(gdf,date)
   
-  # Initializing the number of infected parishes per month for the model's output
-  model_infected_parishes_month <- rep(0, length(infected_parishes_month))
+  # Make a list of the days from the end of the month to iterate over
+  days <- infected_parishes_month$DaysToEndOfMonth
   
   # Initializing the error between the model's output and the data
-  error <- rep(0, length(infected_parishes_month))
+  error <- rep(0, length(days))
   
   # Computing the total number of parishes in the dataframe without repetitions
   total_parishes <- length(gdf$ParishName)
   
-  # Computing the number of infected parishes per month from the model's output
-  for (i in 1:length(infected_parishes_month)) {
-    init_days <- infected_parishes_month[i,'DaysFromInitDate']
-    final_days <- infected_parishes_month[i,'DaysToEndOfMonth']
-    
-    for (k in 1:total_parishes) {
-      for (day in init_days:final_days) {
-        # Check if there are any rows that satisfy the condition
-        rows <- traj_D[traj_D$node == k & traj_D$time == day, ]
-        if (nrow(rows) == 0){
-          break # Breaks the innermost loop when the condition is met
-        }
-        else if(nrow(rows) > 0){
-          if(rows$Dcum >= 1){
-            model_infected_parishes_month[i] <- model_infected_parishes_month[i] + 1
-            break # Breaks the innermost loop when the condition is met
-          }
+  # Initializing a matrix where the rows represents the number of parishes and the columns the number of days
+  # to store the number of infected parishes per day
+  matrix_death_parishes_month <- matrix(0, nrow = total_parishes, ncol = length(days))
+  matrix_infected_parishes_month <- matrix(0, nrow = total_parishes, ncol = length(days))
+  
+  for (k in 1:total_parishes){
+    for (i in seq_along(days)){
+      day <- days[i]
+      if(day < length(traj_D$Dcum[traj_D$node == k])){
+        if(traj_D$Dcum[traj_D$node == k & traj_D$time == day] >= 1){
+          matrix_death_parishes_month[k,i] <- traj_D$Dcum[traj_D$node == k & traj_D$time == day]
         }
       }
     }
-    error[i] <- (model_infected_parishes_month[i] - infected_parishes_month[i,'NumberInfectedParishes'])^2
   }
-  
+  for (i in 1:nrow(matrix_death_parishes_month)){
+    for (j in 1:ncol(matrix_death_parishes_month)){
+      if(j== 1){
+        matrix_infected_parishes_month[i,j] <- ifelse(matrix_death_parishes_month[i,j] < 1, 0, 1)
+      } else {
+        diff <- matrix_death_parishes_month[i,j] - matrix_death_parishes_month[i,j-1]
+        matrix_infected_parishes_month[i,j] <- ifelse(diff >= 1, 1, 0)
+      }
+    }
+  }
+  # Initializing the number of infected parishes per month for the model's output
+  model_infected_parishes_month <- numeric(ncol(matrix_infected_parishes_month))
+  for (j in 1:ncol(matrix_infected_parishes_month)){
+    model_infected_parishes_month[j] <- sum(matrix_infected_parishes_month[,j])
+    error[j] <- (model_infected_parishes_month[j] - infected_parishes_month[j,'NumberInfectedParishes'])^2
+  }
+
   max_error <- max(error)
   
   # Computing the error between the model's output and the data
@@ -161,6 +170,7 @@ objectiveFunction_2 <- function(local_parameter, gdf) {
   
   return(total_error)
 }
+#objectiveFunction_2(local_parameter = data.frame(Iv_prop = rep(0.5, npatches)), gdf = YSTAD_group)
 
 # Define the objective function for mlrMBO
 objectiveFunction_2_mlr <- makeSingleObjectiveFunction(
@@ -192,9 +202,10 @@ ps<- makeParamSet(
 des = generateDesign(n = 80, par.set = ps)
 des$y = apply(des, 1, objectiveFunction_2_mlr)
 des <- des[order(des$y),][1:40,]
+des
 
 control = makeMBOControl(final.method = "best.predicted")
-control = setMBOControlTermination(control, iters = 80)
+control = setMBOControlTermination(control, iters = 40)
 control = setMBOControlInfill(control, crit = crit.eqi)
 
 # Run the optimization
@@ -206,6 +217,7 @@ options(scipen=999)
 infected_parishes <- run_infected_parishes_model(res$x, global_parameters = global_parameters, gdf = YSTAD_group, n=0)
 infected_parishes
 plot_infected_parishes(infected_parishes, YSTAD_group, 0)
+count_infected_parishes_month(YSTAD_group, "JUN 1712")
 
 ## Run the model with the best parameters
 best_params <- as.data.frame(best_params)
@@ -245,5 +257,6 @@ result <- run(model = model_subpneumonic)
 traj_D <- trajectory(model = result, compartments = "Dcum")
 ggplot(traj_D) + geom_line(aes(x = time, y = Dcum, color = factor(node)))
 
+View(traj_D)
 
 
